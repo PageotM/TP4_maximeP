@@ -4,16 +4,42 @@ Simple Unicode Encoding Tool
 
 import sys
 import argparse
+import subprocess
 
-UTF8 = 'utf-8'
-UTF16 = 'utf-16'
-UTF32 = 'utf-32'
-UTF16_LE = 'utf-16LE'
-UTF16_BE = 'utf-16BE'
-UTF32_LE = 'utf-32LE'
-UTF32_BE = 'utf-32BE'
+UTF8 = 'UTF-8'
+UTF16 = 'UTF-16'
+UTF32 = 'UTF-32'
+UTF16_LE = 'UTF-16-LE'
+UTF16_BE = 'UTF-16-BE'
+UTF32_LE = 'UTF-32-LE'
+UTF32_BE = 'UTF-32-BE'
 
-VALID_ENCODINGS = [UTF8, UTF16, UTF32, UTF16_LE, UTF16_BE, UTF32_LE, UTF32_BE, 'oops']
+VALID_ENCODINGS = [
+    UTF8,
+    UTF16,
+    UTF32,
+    UTF16_LE,
+    UTF16_BE,
+    UTF32_LE,
+    UTF32_BE,
+]
+
+
+def map_to_windows_encoding(encoding):
+    conversions = {
+        UTF8: 'utf8',
+        UTF16: 'unicode',
+        UTF32: 'utf32',
+        UTF16_LE: 'unicode',
+        UTF16_BE: 'bigendianunicode',
+        UTF32_LE: 'utf32',
+        UTF32_BE: 'bigendianutf32',
+    }
+
+    if encoding in conversions:
+        return conversions[encoding]
+    else:
+        raise ValueError(f"Unsupported encoding: {encoding}")
 
 
 def detect_bom(filepath):
@@ -39,21 +65,29 @@ def detect(filepath):
     return bom_encoding
 
 
-def exec_convert(input_file, output_file, from_encoding: str, to_encoding: str):
+def exec_convert(input_file, output_file, from_encoding: str, to_encoding: str) -> subprocess.CompletedProcess:
     from_encoding = from_encoding.strip().upper()
     to_encoding = to_encoding.strip().upper()
 
-    with open(input_file, 'r', encoding=from_encoding) as f:
-        content = f.read()
-        with open(output_file, 'w', encoding=to_encoding) as out:
-            out.write(content)
+    if sys.platform == 'win32':
+        from_encoding = map_to_windows_encoding(from_encoding)
+        to_encoding = map_to_windows_encoding(to_encoding)
+        return subprocess.run(['pwsh', '-Command',
+                               f'Get-Content "{input_file}" -Encoding {from_encoding} | Set-Content "{output_file}" -Encoding {to_encoding}'],
+                              check=True)
+    else:
+        return subprocess.run(['iconv',
+                               '--from-code', from_encoding,
+                               '--to-code', to_encoding,
+                               input_file,
+                               '--output', output_file], check=True)
 
 
 def convert(input_file, output_file, from_encoding, to_encoding):
     """Convert file between encodings"""
     try:
         exec_convert(input_file, output_file, from_encoding, to_encoding)
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         return False, f"Error: {e}"
 
     return True, f"Converted {input_file} from {from_encoding} to {to_encoding}"
